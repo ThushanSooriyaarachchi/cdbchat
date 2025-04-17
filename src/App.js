@@ -47,8 +47,8 @@ export const ApiService = {
 
 function App() {
   const [text, setText] = useState('');
+  const [currentQuery, setCurrentQuery] = useState('');
   const [message, setMessage] = useState(null);
-  const [messageProcessed, setMessageProcessed] = useState(false);
   const [previousChats, setPreviousChats] = useState([]);
   const [localChats, setLocalChats] = useState([]);
   const [currentTitle, setCurrentTitle] = useState(null);
@@ -77,30 +77,56 @@ function App() {
     e.preventDefault();
     if (!text) return;
 
-    const currentQuery = text;
+    // Save the current query before it gets cleared
+    const queryText = text;
+    setCurrentQuery(queryText);
+    
+    // Set title if it's a new chat
+    if (!currentTitle) {
+      setCurrentTitle(queryText);
+    }
+
     setErrorText('');
 
     try {
       setIsResponseLoading(true);
       
+      // First, add the user message to the chat
+      const newUserChat = {
+        title: currentTitle || queryText,
+        role: 'user',
+        content: queryText,
+      };
+      
+      setPreviousChats(prevChats => [...prevChats, newUserChat]);
+      setLocalChats(prevChats => [...prevChats, newUserChat]);
+      
       // Using the ApiService to connect to FastAPI
-      const data = await ApiService.processQuery(text); // Optional user_id
+      const data = await ApiService.processQuery(queryText);
       
       // Process the response
       if (data.status !== 'success') {
         setErrorText(data.detail || 'Error processing your request');
-        // setText('');
       } else {
         setErrorText('');
-        // Convert from API format to the expected message format
-        setMessage({
+        
+        // Add the assistant's response to the chat
+        const responseMessage = {
+          title: currentTitle || queryText,
           role: 'assistant',
           content: data.result,
-          query: currentQuery
-        });
-
+        };
+        
+        setPreviousChats(prevChats => [...prevChats, responseMessage]);
+        setLocalChats(prevChats => [...prevChats, responseMessage]);
+        
+        // Update localStorage
+        const updatedChats = [...localChats, newUserChat, responseMessage];
+        localStorage.setItem('previousChats', JSON.stringify(updatedChats));
+        
+        // Clear the input field after successful response
         setText('');
-
+        
         // Scroll to the latest message
         setTimeout(() => {
           scrollToLastItem.current?.lastElementChild?.scrollIntoView({
@@ -151,89 +177,6 @@ function App() {
       setLocalChats(JSON.parse(storedChats));
     }
   }, []);
-
-  // useEffect(() => {
-  //   if (!currentTitle && text && message) {
-  //     setCurrentTitle(text);
-  //   }
-
-  //   if (currentTitle && text && message) {
-  //     const newChat = {
-  //       title: currentTitle,
-  //       role: 'user',
-  //       content: text,
-  //     };
-
-  //     const responseMessage = {
-  //       title: currentTitle,
-  //       role: message.role,
-  //       content: message.content,
-  //     };
-
-  //     setPreviousChats((prevChats) => [...prevChats, newChat, responseMessage]);
-  //     setLocalChats((prevChats) => [...prevChats, newChat, responseMessage]);
-
-  //     // Create a new array to avoid referencing the state variable directly
-  //     const updatedChats = [...localChats, newChat, responseMessage];
-  //     localStorage.setItem('previousChats', JSON.stringify(updatedChats));
-      
-  //     // Clear text after message is stored
-  //     setText('');
-  //   }
-  // }, [message, currentTitle, text, localChats]);
-
-  const messageHandled = useRef(false);
-
-  useEffect(() => {
-    // Only proceed if there's a message and it hasn't been processed yet
-    if (message && !messageProcessed) {
-      // Set a title if we don't have one
-      const queryText = message.queryText || '';
-      if (!currentTitle && text) {
-        setCurrentTitle(text);
-      }
-  
-      if (currentTitle) {
-        const newChat = {
-          title: currentTitle,
-          role: 'user',
-          // content: text || '(Empty query)', // Fallback in case text is empty
-          content: queryText,
-        };
-  
-        const responseMessage = {
-          title: currentTitle,
-          role: message.role,
-          content: message.content,
-        };
-  
-        setPreviousChats(prevChats => [...prevChats, newChat, responseMessage]);
-        setLocalChats(prevChats => [...prevChats, newChat, responseMessage]);
-  
-        // Update localStorage
-        const updatedChats = [...localChats, newChat, responseMessage];
-        localStorage.setItem('previousChats', JSON.stringify(updatedChats));
-
-        messageHandled.current = true;
-        // // Mark this message as processed
-        setMessageProcessed(true);
-        
-        // // Clear text input
-        setText('');
-        setTimeout(() => {
-          setMessage(null);
-          messageHandled.current = false;
-        }, 100);
-      }
-    }
-  }, [message, currentTitle, text, messageProcessed,localChats]);
-  // [message, currentTitle, text, messageProcessed, localChats])
-
-  useEffect(() => {
-    if (isResponseLoading) {
-      setMessageProcessed(false);
-    }
-  }, [isResponseLoading]);
 
   const currentChat = (localChats || previousChats).filter(
     (prevChat) => prevChat.title === currentTitle
@@ -348,7 +291,7 @@ function App() {
                 const isUser = chatMsg.role === 'user';
 
                 return (
-                  <li key={idx} ref={scrollToLastItem}>
+                  <li key={idx} ref={idx === currentChat.length - 1 ? scrollToLastItem : null}>
                     {isUser ? (
                       <div>
                         <BiSolidUserCircle size={28.8} />
